@@ -4,12 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"runtime/debug"
 	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/launcher"
+	"github.com/tekkamanendless/cboc-tools/dataservicecenter"
 )
 
 type Config struct {
@@ -33,16 +35,24 @@ func main() {
 	flag.StringVar(&config.District, "district", "Christina", "The district.")
 	flag.StringVar(&config.DelawareUsername, "delaware-username", "", "The username.")
 	flag.StringVar(&config.DelawarePassword, "delaware-password", "", "The password.")
+	flag.StringVar(&config.DSCUsername, "dsc-username", "", "The username.")
+	flag.StringVar(&config.DSCPassword, "dsc-password", "", "The password.")
 	flag.StringVar(&config.ERPUsername, "erp-username", "", "The username.")
 	flag.StringVar(&config.ERPPassword, "erp-password", "", "The password.")
 
 	flag.Parse()
 
-	config.DSCUsername = config.DelawareUsername
-	if i := strings.Index(config.DSCUsername, "@"); i > 0 {
-		config.DSCUsername = config.DSCUsername[0:i]
+	// The DSC username is the same as the Delaware username, but without the domain.
+	if config.DSCUsername == "" {
+		config.DSCUsername = config.DelawareUsername
+		if i := strings.Index(config.DSCUsername, "@"); i > 0 {
+			config.DSCUsername = config.DSCUsername[0:i]
+		}
 	}
-	config.DSCPassword = config.DelawarePassword
+	// The DSC password is the same as the Delaware password.
+	if config.DSCPassword == "" {
+		config.DSCPassword = config.DelawarePassword
+	}
 
 	l := launcher.New().
 		Headless(headless).
@@ -77,33 +87,49 @@ func doTheThing(browser *rod.Browser, config Config) error {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Println("Recovered in f", r)
+			debug.PrintStack()
 			time.Sleep(10 * time.Minute)
 		}
 	}()
 
-	var err error
-	/*
-		err := loginToDSC(browser, config.District, config.DSCUsername, config.DSCPassword)
+	if config.District != "" && config.DSCUsername != "" && config.DSCPassword != "" {
+		dscInstance := dataservicecenter.New(browser)
+		err := dscInstance.Login(config.District, config.DSCUsername, config.DSCPassword)
 		if err != nil {
 			return err
 		}
-		return nil // TODO
-	*/
 
-	err = loginToDelawareDotGov(browser, config.DelawareUsername, config.DelawarePassword)
-	if err != nil {
-		return err
+		fsf, err := dscInstance.FSF()
+		if err != nil {
+			return err
+		}
+		item, err := fsf.Item("Operating Unit/Program Expenditure Summary")
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Item: %+v\n", item)
 	}
 
-	err = loginToERPPortal(browser, config.ERPUsername, config.ERPPassword)
-	if err != nil {
-		return err
+	if config.DelawareUsername != "" && config.DelawarePassword != "" {
+		err := loginToDelawareDotGov(browser, config.DelawareUsername, config.DelawarePassword)
+		if err != nil {
+			return err
+		}
+	}
+
+	if config.ERPUsername != "" && config.ERPPassword != "" {
+		err := loginToERPPortal(browser, config.ERPUsername, config.ERPPassword)
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
 func loginToDelawareDotGov(browser *rod.Browser, username string, password string) error {
+	fmt.Printf("Logging in to Delaware.gov...\n")
+
 	// Create a new page
 	page := browser.MustPage("https://id.delaware.gov").MustWaitStable()
 
@@ -304,31 +330,5 @@ func getMobiusItems(page *rod.Page) (map[string]*rod.Element, error) {
 func searchMobiusItems(page *rod.Page, input string) error {
 	inputElement := page.MustElement("app-mobius-view-content-list mobius-content-list mobius-content-filter input")
 	inputElement.MustInput(input)
-	return nil
-}
-
-func loginToDSC(browser *rod.Browser, district string, username string, password string) error {
-	// Create a new page
-	page := browser.MustPage("https://secure.dataservice.org/Logon/").MustWaitStable()
-
-	formElement := page.MustElement(`form#loginForm`)
-	districtSelect := formElement.MustElement(`select[name="Input.District"]`)
-	districtSelect.MustSelect(district)
-
-	usernameInput := formElement.MustElement(`input[name="Input.Username"]`)
-	usernameInput.MustInput(username)
-
-	passwordInput := formElement.MustElement(`input[name="Input.Password"]`)
-	passwordInput.MustInput(password)
-
-	signinButton := formElement.MustElement(`button[type="submit"]`)
-	signinButton.MustClick()
-
-	page.MustWaitStable()
-
-	if page.MustInfo().URL == "https://secure.dataservice.org/Logon/" {
-		return fmt.Errorf("could not log in")
-	}
-
 	return nil
 }
