@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -10,9 +11,9 @@ import (
 	"time"
 
 	"github.com/go-rod/rod"
-	"github.com/go-rod/rod/lib/input"
 	"github.com/go-rod/rod/lib/launcher"
 	"github.com/tekkamanendless/cboc-tools/dataservicecenter"
+	"github.com/tekkamanendless/cboc-tools/delawaregov"
 )
 
 type Config struct {
@@ -112,6 +113,8 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		}
 	}()
 
+	divisions := []string{"33", "51", "56", "60"}
+
 	if config.District != "" && config.DSCUsername != "" && config.DSCPassword != "" {
 		dscInstance := dataservicecenter.New(browser)
 		err := dscInstance.Login(config.District, config.DSCUsername, config.DSCPassword)
@@ -119,14 +122,14 @@ func doTheThing(browser *rod.Browser, config Config) error {
 			return err
 		}
 
-		fsf, err := dscInstance.FSF()
+		fsfInstance, err := dscInstance.FSF()
 		if err != nil {
 			return err
 		}
 		{
 			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-program-summary.csv"
 			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
-				contents, err := fsf.DownloadOperatingUnitProgramSummaryReport(config.TargetYear, config.TargetMonth, false, "csv")
+				contents, err := fsfInstance.DownloadOperatingUnitProgramSummaryReport(config.TargetYear, config.TargetMonth, false, "csv")
 				if err != nil {
 					return err
 				}
@@ -137,7 +140,7 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		{
 			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-program-summary.pdf"
 			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
-				contents, err := fsf.DownloadOperatingUnitProgramSummaryReport(config.TargetYear, config.TargetMonth, false, "pdf")
+				contents, err := fsfInstance.DownloadOperatingUnitProgramSummaryReport(config.TargetYear, config.TargetMonth, false, "pdf")
 				if err != nil {
 					return err
 				}
@@ -148,7 +151,7 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		{
 			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-expenditure-summary.csv"
 			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
-				contents, err := fsf.DownloadOperatingUnitExpenditureSummaryReport(config.TargetYear, config.TargetMonth, []string{"33", "51", "56", "60"}, "csv")
+				contents, err := fsfInstance.DownloadOperatingUnitExpenditureSummaryReport(config.TargetYear, config.TargetMonth, divisions, "csv")
 				if err != nil {
 					return err
 				}
@@ -159,7 +162,7 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		{
 			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-expenditure-summary.pdf"
 			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
-				contents, err := fsf.DownloadOperatingUnitExpenditureSummaryReport(config.TargetYear, config.TargetMonth, []string{"33", "51", "56", "60"}, "pdf")
+				contents, err := fsfInstance.DownloadOperatingUnitExpenditureSummaryReport(config.TargetYear, config.TargetMonth, divisions, "pdf")
 				if err != nil {
 					return err
 				}
@@ -170,224 +173,89 @@ func doTheThing(browser *rod.Browser, config Config) error {
 	}
 
 	if config.DelawareUsername != "" && config.DelawarePassword != "" {
-		err := loginToDelawareDotGov(browser, config.DelawareUsername, config.DelawarePassword)
+		delawareGovInstance := delawaregov.New(browser)
+		err := delawareGovInstance.Login(config.DelawareUsername, config.DelawarePassword)
 		if err != nil {
 			return err
 		}
-	}
 
-	if config.ERPUsername != "" && config.ERPPassword != "" {
-		err := loginToERPPortal(browser, config.ERPUsername, config.ERPPassword)
-		if err != nil {
-			return err
+		if config.ERPUsername != "" && config.ERPPassword != "" {
+			erpInstance, err := delawareGovInstance.ERP()
+			if err != nil {
+				return err
+			}
+
+			err = erpInstance.Login(config.ERPUsername, config.ERPPassword)
+			if err != nil {
+				return err
+			}
+
+			mobiusInstance, err := erpInstance.Mobius()
+			if err != nil {
+				return err
+			}
+
+			reportNames := []string{
+				"DLG060",
+				"DLG114",
+				"DLG115",
+			}
+			for _, reportName := range reportNames {
+				path := []string{"Repositories", "First State Financials", "Reports", reportName}
+
+				err := mobiusInstance.GoToReport(path)
+				if err != nil {
+					return err
+				}
+
+				var dateFile string
+				{
+					itemMap, err := mobiusInstance.GetItems()
+					if err != nil {
+						return err
+					}
+
+					var lastDate time.Time
+					for dateName := range maps.Keys(itemMap) {
+						t, err := time.Parse("Jan 2, 2006 3:04:05 PM", dateName)
+						if err != nil {
+							fmt.Printf("Could not parse date %q: %v\n", dateName, err)
+							continue
+						}
+						if t.Year() != config.TargetYear || int(t.Month()) != config.TargetMonth {
+							continue
+						}
+						if lastDate.IsZero() || t.After(lastDate) {
+							lastDate = t
+							dateFile = dateName
+						}
+					}
+				}
+				if dateFile == "" {
+					return fmt.Errorf("could not find a date file")
+				}
+
+				err = mobiusInstance.ClickItem(dateFile)
+				if err != nil {
+					return err
+				}
+
+				for _, division := range divisions {
+					reportFile := fmt.Sprintf("95%s00", division)
+
+					fileName := config.BaseDirectory + string(filepath.Separator) + "mobius." + reportName + "." + division + ".pdf"
+					if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
+						contents, err := mobiusInstance.ExtractReport(reportFile)
+						if err != nil {
+							return err
+						}
+
+						os.WriteFile(fileName, contents, 0644)
+					}
+				}
+			}
 		}
 	}
 
-	return nil
-}
-
-func loginToDelawareDotGov(browser *rod.Browser, username string, password string) error {
-	fmt.Printf("Logging in to Delaware.gov...\n")
-
-	// Create a new page
-	page := browser.MustPage("https://id.delaware.gov").MustWaitStable()
-
-	formElement := page.MustElement(`form`) // Could be "#form19"
-
-	usernameInput := formElement.MustElement(`input[autocomplete="username"]`)
-	usernameInput.MustInput(username)
-
-	passwordInput := formElement.MustElement(`input[type="password"]`)
-	passwordInput.MustInput(password)
-
-	signinButton := formElement.MustElement(`input[type="submit"]`)
-	signinButton.MustClick()
-
-	page.MustWaitStable()
-
-	if page.MustInfo().URL == "https://id.delaware.gov/app/UserHome" {
-		return fmt.Errorf("could not log in")
-	}
-
-	return nil
-}
-
-func loginToERPPortal(browser *rod.Browser, username string, password string) error {
-	// Create a new page
-	page := browser.MustPage("https://portal.erp.state.de.us") //.MustWaitStable()
-	time.Sleep(2 * time.Second)
-
-	formElement := page.MustElement(`form[name="login"]`)
-
-	usernameInput := formElement.MustElement(`input[name="userid"]`)
-	usernameInput.MustInput(username)
-
-	passwordInput := formElement.MustElement(`input[type="password"]`)
-	passwordInput.MustInput(password)
-
-	agreeInput := formElement.MustElement(`input[name="agree"]`)
-	agreeInput.MustClick()
-
-	signinButton := formElement.MustElement(`input[type="submit"]`)
-	signinButton.MustClick()
-
-	page.MustWaitStable()
-
-	/*
-		if page.MustInfo().URL == "https://id.delaware.gov/app/UserHome" {
-			return fmt.Errorf("could not log in")
-		}
-	*/
-	// TODO: End up here: https://portal.erp.state.de.us/psc/ps92pd/EMPLOYEE/EMPL/c/NUI_FRAMEWORK.PT_LANDINGPAGE.GBL?
-
-	// And then Mobius
-
-	var mobiusLinkElement *rod.Element
-	for _, element := range page.MustElements(".ps_groupleth") {
-		if element.MustText() == "Mobius View" {
-			mobiusLinkElement = element
-			break
-		}
-	}
-	if mobiusLinkElement == nil {
-		return fmt.Errorf("could not find Mobius View")
-	}
-	mobiusLinkElement.MustClick()
-	time.Sleep(2 * time.Second)
-
-	pages := browser.MustPages()
-	for _, page := range pages {
-		fmt.Printf("page: %s\n", page.MustInfo().URL)
-	}
-
-	page = pages.MustFindByURL("viewerpreports.dti")
-	fmt.Printf("page: %s\n", page.MustInfo().URL)
-	page.MustElement("button#continue").MustClick()
-
-	err := doTheMobiusWork(page)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func doTheMobiusWork(page *rod.Page) error {
-	page.MustWaitStable()
-	page.WaitDOMStable(5*time.Second, 10)
-
-	err := clickMobiusItem(page, "First State Financials")
-	if err != nil {
-		return err
-	}
-	page.WaitDOMStable(5*time.Second, 10)
-
-	err = clickMobiusItem(page, "Reports")
-	if err != nil {
-		return err
-	}
-	page.WaitDOMStable(5*time.Second, 10)
-
-	err = searchMobiusItems(page, "DGL060")
-	if err != nil {
-		return err
-	}
-
-	page.WaitDOMStable(5*time.Second, 10)
-
-	err = clickMobiusItem(page, "DGL060")
-	if err != nil {
-		return err
-	}
-	page.WaitDOMStable(5*time.Second, 10)
-
-	err = clickMobiusItem(page, "Jan 31, 2025 11:43:10 PM")
-	if err != nil {
-		return err
-	}
-	page.WaitDOMStable(5*time.Second, 10)
-
-	// "953300"
-	// 33, 51, 56, 60
-
-	err = clickMobiusItem(page, "953300")
-	if err != nil {
-		return err
-	}
-	page.WaitDOMStable(5*time.Second, 10)
-
-	// Extract
-	{
-		page.MustElement(`app-mobius-view-docviewer mobius-toolbar div[title="Extract"]`).MustClick()
-		page.WaitDOMStable(5*time.Second, 10)
-		page.WaitDOMStable(5*time.Second, 10)
-		page.WaitDOMStable(5*time.Second, 10)
-
-		err = clickMobiusItem(page, "DGL060")
-		if err != nil {
-			return err
-		}
-		page.WaitDOMStable(5*time.Second, 10)
-
-		page.MustElement(`app-mobius-view-extract-results mobius-toolbar div[title="Export"]`).MustClick()
-		page.WaitDOMStable(5*time.Second, 10)
-
-		page.MustElement(`ngb-modal-window [placeholder="File Name"]`).MustType(input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace, input.Backspace)
-		page.MustElement(`ngb-modal-window [placeholder="File Name"]`).MustInput("DLG060_953300")
-		page.WaitDOMStable(5*time.Second, 10)
-
-		page.MustElement(`ngb-modal-window mobius-ui-checkbox#dontZipDownloadFile a`).MustClick()
-		page.WaitDOMStable(5*time.Second, 10)
-
-		fmt.Printf("Waiting for download.\n")
-		download := page.Browser().MustWaitDownload()
-
-		page.MustElement(`ngb-modal-window button.btn-submit`).MustClick()
-		page.WaitDOMStable(5*time.Second, 10)
-
-		fmt.Printf("Downloading...\n")
-		contents := download()
-		fmt.Printf("Downloaded %d bytes.\n", len(contents))
-		os.WriteFile("/tmp/DLG060_95330.csv", contents, 0644)
-	}
-
-	// mobius-ui-content-breadcrumb
-	/*
-			<a _ngcontent-c40="" class="breadcrumb-item" href="#">
-		                DGL060
-		            </a>
-	*/
-
-	return nil
-}
-
-func clickMobiusItem(page *rod.Page, name string) error {
-	itemMap, err := getMobiusItems(page)
-	if err != nil {
-		return err
-	}
-	targetItemElement := itemMap[name]
-	if targetItemElement == nil {
-		return fmt.Errorf("could not find item: %s", name)
-	}
-	targetItemElement.MustClick()
-
-	return nil
-}
-
-func getMobiusItems(page *rod.Page) (map[string]*rod.Element, error) {
-	output := map[string]*rod.Element{}
-	itemElements := page.MustElements("app-mobius-view-content-list mobius-content-list mobius-content-item .content-item-label")
-	for _, itemElement := range itemElements {
-		text := strings.TrimSpace(itemElement.MustText())
-		fmt.Printf("getMobiusItems: item: %s\n", text)
-		output[text] = itemElement
-	}
-	return output, nil
-}
-
-func searchMobiusItems(page *rod.Page, input string) error {
-	inputElement := page.MustElement("app-mobius-view-content-list mobius-content-list mobius-content-filter input")
-	inputElement.MustInput(input)
 	return nil
 }
