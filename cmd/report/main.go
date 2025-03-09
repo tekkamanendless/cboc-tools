@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime/debug"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ type Config struct {
 	DSCPassword      string
 	ERPPassword      string
 	ERPUsername      string
+	BaseDirectory    string
 }
 
 func main() {
@@ -32,6 +34,7 @@ func main() {
 	flag.BoolVar(&devTools, "dev-tools", false, "Show the dev tools.")
 	flag.BoolVar(&headless, "headless", true, "Set the headless mode.  If true, no browser will be shown.")
 	flag.DurationVar(&slowMotion, "slow-motion", 0, "Set the delay between actions.")
+	flag.StringVar(&config.BaseDirectory, "base-directory", "", "The location to save the results.")
 	flag.StringVar(&config.District, "district", "Christina", "The district.")
 	flag.StringVar(&config.DelawareUsername, "delaware-username", "", "The username.")
 	flag.StringVar(&config.DelawarePassword, "delaware-password", "", "The password.")
@@ -52,6 +55,10 @@ func main() {
 	// The DSC password is the same as the Delaware password.
 	if config.DSCPassword == "" {
 		config.DSCPassword = config.DelawarePassword
+	}
+
+	if config.BaseDirectory == "" {
+		config.BaseDirectory = os.TempDir()
 	}
 
 	l := launcher.New().
@@ -92,6 +99,10 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		}
 	}()
 
+	targetDate := time.Now().AddDate(0, -1, 0)
+	targetYear := targetDate.Year()
+	targetMonth := int(targetDate.Month())
+
 	if config.District != "" && config.DSCUsername != "" && config.DSCPassword != "" {
 		dscInstance := dataservicecenter.New(browser)
 		err := dscInstance.Login(config.District, config.DSCUsername, config.DSCPassword)
@@ -103,11 +114,28 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		if err != nil {
 			return err
 		}
-		item, err := fsf.Item("Operating Unit/Program Expenditure Summary")
-		if err != nil {
-			return err
+		{
+			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-program-summary.csv"
+			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
+				contents, err := fsf.DownloadOperatingUnitProgramSummaryReport(targetYear, targetMonth, false, "csv")
+				if err != nil {
+					return err
+				}
+
+				os.WriteFile(fileName, contents, 0644)
+			}
 		}
-		fmt.Printf("Item: %+v\n", item)
+		{
+			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-program-summary.pdf"
+			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
+				contents, err := fsf.DownloadOperatingUnitProgramSummaryReport(targetYear, targetMonth, false, "pdf")
+				if err != nil {
+					return err
+				}
+
+				os.WriteFile(fileName, contents, 0644)
+			}
+		}
 	}
 
 	if config.DelawareUsername != "" && config.DelawarePassword != "" {
