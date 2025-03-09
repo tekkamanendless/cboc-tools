@@ -24,6 +24,8 @@ type Config struct {
 	ERPPassword      string
 	ERPUsername      string
 	BaseDirectory    string
+	TargetYear       int
+	TargetMonth      int
 }
 
 func main() {
@@ -42,6 +44,8 @@ func main() {
 	flag.StringVar(&config.DSCPassword, "dsc-password", "", "The password.")
 	flag.StringVar(&config.ERPUsername, "erp-username", "", "The username.")
 	flag.StringVar(&config.ERPPassword, "erp-password", "", "The password.")
+	flag.IntVar(&config.TargetYear, "target-year", 0, "The target year.")
+	flag.IntVar(&config.TargetMonth, "target-month", 0, "The target month.")
 
 	flag.Parse()
 
@@ -55,6 +59,15 @@ func main() {
 	// The DSC password is the same as the Delaware password.
 	if config.DSCPassword == "" {
 		config.DSCPassword = config.DelawarePassword
+	}
+
+	if config.TargetYear == 0 {
+		targetDate := time.Now().AddDate(0, -1, 0)
+		config.TargetYear = targetDate.Year()
+	}
+	if config.TargetMonth == 0 {
+		targetDate := time.Now().AddDate(0, -1, 0)
+		config.TargetMonth = int(targetDate.Month())
 	}
 
 	if config.BaseDirectory == "" {
@@ -99,10 +112,6 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		}
 	}()
 
-	targetDate := time.Now().AddDate(0, -1, 0)
-	targetYear := targetDate.Year()
-	targetMonth := int(targetDate.Month())
-
 	if config.District != "" && config.DSCUsername != "" && config.DSCPassword != "" {
 		dscInstance := dataservicecenter.New(browser)
 		err := dscInstance.Login(config.District, config.DSCUsername, config.DSCPassword)
@@ -117,7 +126,7 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		{
 			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-program-summary.csv"
 			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
-				contents, err := fsf.DownloadOperatingUnitProgramSummaryReport(targetYear, targetMonth, false, "csv")
+				contents, err := fsf.DownloadOperatingUnitProgramSummaryReport(config.TargetYear, config.TargetMonth, false, "csv")
 				if err != nil {
 					return err
 				}
@@ -128,7 +137,7 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		{
 			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-program-summary.pdf"
 			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
-				contents, err := fsf.DownloadOperatingUnitProgramSummaryReport(targetYear, targetMonth, false, "pdf")
+				contents, err := fsf.DownloadOperatingUnitProgramSummaryReport(config.TargetYear, config.TargetMonth, false, "pdf")
 				if err != nil {
 					return err
 				}
@@ -139,7 +148,7 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		{
 			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-expenditure-summary.csv"
 			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
-				contents, err := fsf.DownloadOperatingUnitExpenditureSummaryReport(targetYear, targetMonth, []string{"33", "51", "56", "60"}, "csv")
+				contents, err := fsf.DownloadOperatingUnitExpenditureSummaryReport(config.TargetYear, config.TargetMonth, []string{"33", "51", "56", "60"}, "csv")
 				if err != nil {
 					return err
 				}
@@ -150,7 +159,7 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		{
 			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-expenditure-summary.pdf"
 			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
-				contents, err := fsf.DownloadOperatingUnitExpenditureSummaryReport(targetYear, targetMonth, []string{"33", "51", "56", "60"}, "pdf")
+				contents, err := fsf.DownloadOperatingUnitExpenditureSummaryReport(config.TargetYear, config.TargetMonth, []string{"33", "51", "56", "60"}, "pdf")
 				if err != nil {
 					return err
 				}
