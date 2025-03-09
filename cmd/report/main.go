@@ -136,6 +136,28 @@ func doTheThing(browser *rod.Browser, config Config) error {
 				os.WriteFile(fileName, contents, 0644)
 			}
 		}
+		{
+			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-expenditure-summary.csv"
+			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
+				contents, err := fsf.DownloadOperatingUnitExpenditureSummaryReport(targetYear, targetMonth, []string{"33", "51", "56", "60"}, "csv")
+				if err != nil {
+					return err
+				}
+
+				os.WriteFile(fileName, contents, 0644)
+			}
+		}
+		{
+			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-expenditure-summary.pdf"
+			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
+				contents, err := fsf.DownloadOperatingUnitExpenditureSummaryReport(targetYear, targetMonth, []string{"33", "51", "56", "60"}, "pdf")
+				if err != nil {
+					return err
+				}
+
+				os.WriteFile(fileName, contents, 0644)
+			}
+		}
 	}
 
 	if config.DelawareUsername != "" && config.DelawarePassword != "" {
