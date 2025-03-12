@@ -2,10 +2,13 @@ package mobius
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/go-rod/rod"
+	"github.com/go-rod/rod/lib/input"
+	"github.com/go-rod/rod/lib/proto"
 )
 
 type Mobius struct {
@@ -19,39 +22,79 @@ func New(page *rod.Page) *Mobius {
 }
 
 func (m *Mobius) GoToReport(path []string) error {
+	fmt.Printf("GoToReport: %v\n", path)
+
 	breadcrumbs := m.breadcrumbs()
+	fmt.Printf("breadcrumbs: %+v\n", breadcrumbs)
+
 	var lastBreadcrumb *Breadcrumb
 	remainingPath := append([]string{}, path...)
 	for _, breadcrumb := range breadcrumbs {
 		fmt.Printf("Breadcrumb: %s\n", breadcrumb.Name)
-		for pathIndex, pathPart := range path {
+		for _, pathPart := range path {
 			if strings.EqualFold(breadcrumb.Name, pathPart) {
 				lastBreadcrumb = &breadcrumb
-				remainingPath = remainingPath[pathIndex+1:]
+				remainingPath = remainingPath[1:]
 			}
 		}
 	}
 	if lastBreadcrumb == nil {
 		return fmt.Errorf("could not find a breadcrumb for the path: %v", path)
 	}
+	fmt.Printf("Last breadcrumb: %+v\n", *lastBreadcrumb)
+	fmt.Printf("Remaining path: %v\n", remainingPath)
 
-	for _, pathPart := range remainingPath {
-		err := m.SearchItems(pathPart)
+	{
+		err := lastBreadcrumb.Element.Click(proto.InputMouseButtonLeft, 1)
 		if err != nil {
-			return err
+			if strings.Contains(err.Error(), "pointer-events is none") {
+				fmt.Printf("Not clicking because we can't.\n")
+			} else {
+				fmt.Printf("Could not click: %v\n", err)
+			}
+		} else {
+			m.page.WaitDOMStable(5*time.Second, 10)
 		}
+	}
 
-		err = m.ClickItem(pathPart)
-		if err != nil {
-			return err
+	{
+		for _, pathPart := range remainingPath {
+			itemMap, err := m.GetItems()
+			if err != nil {
+				return fmt.Errorf("could not get items: %w", err)
+			}
+			if _, ok := itemMap[pathPart]; !ok {
+				err := m.SearchItems(pathPart)
+				if err != nil {
+					return err
+				}
+			}
+
+			err = m.ClickItem(pathPart)
+			if err != nil {
+				return err
+			}
 		}
 	}
 
 	return nil
 }
 
-func (m *Mobius) ExtractReport(name string) ([]byte, error) {
-	err := m.ClickItem(name)
+func (m *Mobius) ExtractReport(reportName string, division string) ([]byte, error) {
+	fmt.Printf("ExtractReport: reportName=%s division=%s\n", reportName, division)
+
+	itemMap, err := m.GetItems()
+	if err != nil {
+		return nil, fmt.Errorf("could not get items: %w", err)
+	}
+	if _, ok := itemMap[division]; !ok {
+		err := m.SearchItems(division)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = m.ClickItem(division)
 	if err != nil {
 		return nil, err
 	}
@@ -64,7 +107,7 @@ func (m *Mobius) ExtractReport(name string) ([]byte, error) {
 	page.WaitDOMStable(5*time.Second, 10)
 	page.WaitDOMStable(5*time.Second, 10)
 
-	err = m.ClickItem(name)
+	err = m.ClickItem(reportName)
 	if err != nil {
 		return nil, err
 	}
@@ -73,8 +116,22 @@ func (m *Mobius) ExtractReport(name string) ([]byte, error) {
 	page.MustElement(`app-mobius-view-extract-results mobius-toolbar div[title="Export"]`).MustClick()
 	page.WaitDOMStable(5*time.Second, 10)
 
-	page.MustElement(`ngb-modal-window mobius-ui-checkbox#dontZipDownloadFile a`).MustClick()
-	page.WaitDOMStable(5*time.Second, 10)
+	{
+		dontZipElement := page.MustElement(`ngb-modal-window mobius-ui-checkbox#dontZipDownloadFile`)
+		checked := false
+		{
+			dontZipCheckboxElement := dontZipElement.MustElement(`.basicCheckbox`)
+			classNamesString := dontZipCheckboxElement.MustAttribute("class")
+			if classNamesString != nil {
+				classNames := strings.Split(*classNamesString, " ")
+				checked = slices.Contains(classNames, "checked")
+			}
+		}
+		if !checked {
+			dontZipElement.MustElement(`a`).MustClick()
+			page.WaitDOMStable(5*time.Second, 10)
+		}
+	}
 
 	fmt.Printf("Waiting for download.\n")
 	download := page.Browser().MustWaitDownload()
@@ -86,7 +143,28 @@ func (m *Mobius) ExtractReport(name string) ([]byte, error) {
 	contents := download()
 	fmt.Printf("Downloaded %d bytes.\n", len(contents))
 
+	// Close the file preview.
+	page.MustElement(`app-mobius-view-extract-results mobius-ui-dv-close`).MustClick()
+	page.WaitDOMStable(5*time.Second, 10)
+
 	// TODO: Close the file preview?
+	/*
+			<mobius-ui-dv-close _ngcontent-c34="" class="mx-1 ng-star-inserted" _nghost-c69=""><div _ngcontent-c69="" class="ccontainer">
+		  <a _ngcontent-c69="" title="Close">
+		    <mobius-icon _ngcontent-c69="" _nghost-c6=""><!----><!---->
+		<!---->
+		<!----><div _ngcontent-c6="" class="inline basicSvgIcon smallHighlightIcon ng-star-inserted">
+		    <svg _ngcontent-c6="" xmlns:xlink="http://www.w3.org/1999/xlink" height="100%" version="1.1" viewBox="0 0 16 16" width="100%">
+		        <use _ngcontent-c6="" xlink:href="#close"></use>
+		    </svg>
+		</div>
+		<!---->
+
+		</mobius-icon>
+		  </a>
+		</div>
+		</mobius-ui-dv-close>
+	*/
 
 	return contents, nil
 }
@@ -104,7 +182,8 @@ func (m *Mobius) breadcrumbs() []Breadcrumb {
 	*/
 
 	var output []Breadcrumb
-	breadcrumbElements := m.page.MustElements(`mobius-ui-content-breadcrumb a.breadcrumb-item`)
+	breadcrumbElement := m.page.MustElement(`mobius-ui-content-breadcrumb`) // Only get the first one.
+	breadcrumbElements := breadcrumbElement.MustElements(`a.breadcrumb-item`)
 	for _, breadcrumbElement := range breadcrumbElements {
 		breadcrumb := Breadcrumb{
 			Name:    strings.TrimSpace(breadcrumbElement.MustText()),
@@ -116,6 +195,8 @@ func (m *Mobius) breadcrumbs() []Breadcrumb {
 }
 
 func (m *Mobius) ClickItem(name string) error {
+	fmt.Printf("ClickItem: %s\n", name)
+
 	itemMap, err := m.GetItems()
 	if err != nil {
 		return err
@@ -127,6 +208,19 @@ func (m *Mobius) ClickItem(name string) error {
 	targetItemElement.MustClick()
 
 	m.page.WaitDOMStable(5*time.Second, 10)
+
+	itemMap, err = m.GetItems()
+	if err != nil {
+		return err
+	}
+	targetItemElement = itemMap[name]
+	if targetItemElement != nil {
+		fmt.Printf("No dice; trying again.\n")
+
+		targetItemElement.MustClick()
+
+		m.page.WaitDOMStable(5*time.Second, 10)
+	}
 
 	return nil
 }
@@ -142,9 +236,14 @@ func (m *Mobius) GetItems() (map[string]*rod.Element, error) {
 	return output, nil
 }
 
-func (m *Mobius) SearchItems(input string) error {
+func (m *Mobius) SearchItems(searchText string) error {
+	fmt.Printf("SearchItems: %s\n", searchText)
+
+	//panic("oops")
+
 	inputElement := m.page.MustElement("app-mobius-view-content-list mobius-content-list mobius-content-filter input")
-	inputElement.MustInput(input)
+	inputElement.Type(slices.Repeat([]input.Key{input.Backspace}, 20)...)
+	inputElement.MustInput(searchText)
 
 	m.page.WaitDOMStable(5*time.Second, 10)
 	return nil

@@ -114,8 +114,11 @@ func doTheThing(browser *rod.Browser, config Config) error {
 	}()
 
 	divisions := []string{"33", "51", "56", "60"}
+	fmt.Printf("Divisions: %v\n", divisions)
 
 	if config.District != "" && config.DSCUsername != "" && config.DSCPassword != "" {
+		fmt.Printf("Doing: DSC\n")
+
 		dscInstance := dataservicecenter.New(browser)
 		err := dscInstance.Login(config.District, config.DSCUsername, config.DSCPassword)
 		if err != nil {
@@ -173,6 +176,8 @@ func doTheThing(browser *rod.Browser, config Config) error {
 	}
 
 	if config.DelawareUsername != "" && config.DelawarePassword != "" {
+		fmt.Printf("Doing: Delaware.gov\n")
+
 		delawareGovInstance := delawaregov.New(browser)
 		err := delawareGovInstance.Login(config.DelawareUsername, config.DelawarePassword)
 		if err != nil {
@@ -180,6 +185,8 @@ func doTheThing(browser *rod.Browser, config Config) error {
 		}
 
 		if config.ERPUsername != "" && config.ERPPassword != "" {
+			fmt.Printf("Doing: ERP\n")
+
 			erpInstance, err := delawareGovInstance.ERP()
 			if err != nil {
 				return err
@@ -196,9 +203,9 @@ func doTheThing(browser *rod.Browser, config Config) error {
 			}
 
 			reportNames := []string{
-				"DLG060",
-				"DLG114",
-				"DLG115",
+				"DGL060",
+				"DGL114",
+				"DGL115",
 			}
 			for _, reportName := range reportNames {
 				path := []string{"Repositories", "First State Financials", "Reports", reportName}
@@ -240,12 +247,27 @@ func doTheThing(browser *rod.Browser, config Config) error {
 					return err
 				}
 
+				pathWithDate := append([]string{}, path...)
+				pathWithDate = append(pathWithDate, dateFile)
+
 				for _, division := range divisions {
+					fmt.Printf("Exporting report %s for division %s.\n", reportName, division)
+
 					reportFile := fmt.Sprintf("95%s00", division)
 
-					fileName := config.BaseDirectory + string(filepath.Separator) + "mobius." + reportName + "." + division + ".pdf"
+					err = mobiusInstance.GoToReport(path)
+					if err != nil {
+						return err
+					}
+
+					err = mobiusInstance.GoToReport(pathWithDate)
+					if err != nil {
+						return err
+					}
+
+					fileName := config.BaseDirectory + string(filepath.Separator) + "mobius." + reportName + "." + division + ".csv"
 					if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
-						contents, err := mobiusInstance.ExtractReport(reportFile)
+						contents, err := mobiusInstance.ExtractReport(reportName, reportFile)
 						if err != nil {
 							return err
 						}
