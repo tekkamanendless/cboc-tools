@@ -57,6 +57,7 @@ func main() {
 
 				header := rows[0]
 				rows = rows[1:]
+				rows = deduplicate(rows)
 
 				headerMap := map[string]int{}
 				for i, column := range header {
@@ -138,6 +139,7 @@ func main() {
 
 				header := rows[0]
 				rows = rows[1:]
+				rows = deduplicate(rows)
 
 				headerMap := map[string]int{}
 				for i, column := range header {
@@ -221,6 +223,7 @@ func main() {
 
 				header := rows[0]
 				rows = rows[1:]
+				rows = deduplicate(rows)
 
 				headerMap := map[string]int{}
 				for i, column := range header {
@@ -349,6 +352,7 @@ func main() {
 
 				header := rows[0]
 				rows = rows[1:]
+				rows = deduplicate(rows)
 
 				headerMap := map[string]int{}
 				for i, column := range header {
@@ -462,6 +466,7 @@ func main() {
 
 				header := rows[0]
 				rows = rows[1:]
+				rows = deduplicate(rows)
 
 				headerMap := map[string]int{}
 				for i, column := range header {
@@ -558,6 +563,19 @@ func main() {
 			}
 		}
 	}
+}
+
+func deduplicate(rows [][]string) [][]string {
+	seen := map[string]bool{}
+	var output [][]string
+	for _, row := range rows {
+		key := strings.Join(row, ",")
+		if _, ok := seen[key]; !ok {
+			seen[key] = true
+			output = append(output, row)
+		}
+	}
+	return output
 }
 
 func processFormulas(row []string) []string {
