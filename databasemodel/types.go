@@ -38,11 +38,11 @@ type MobiusDGL060 struct {
 	AppropriationType        string    `gorm:"column:appropriation_type"`
 	AppropriationDescription string    `gorm:"column:appropriation_description"`
 	EndDate                  time.Time `gorm:"column:end_date"`
-	AvailableAmount          float64   `gorm:"column:available_amount"`
+	AvailableAmount          float64   `gorm:"column:available_amount"` // This is the total amount of money available.
 	EncumberedAmount         float64   `gorm:"column:encumbered_amount"`
 	CurrentYearExpenses      float64   `gorm:"column:current_year_expenses"`
 	PriorYearExpenses        float64   `gorm:"column:prior_year_expenses"`
-	RemainingSpendAuthorized float64   `gorm:"column:remaining_spend_authorized"`
+	RemainingAmount          float64   `gorm:"column:remaining_spend_authorized"`
 }
 
 type MobiusDGL114 struct {

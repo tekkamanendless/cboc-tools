@@ -309,7 +309,7 @@ func main() {
 							fmt.Printf("Row %d: error parsing remain_spend_auth: %v\n", r+1, err)
 							continue
 						}
-						record.RemainingSpendAuthorized = v
+						record.RemainingAmount = v
 					}
 
 					records = append(records, record)
