@@ -30,6 +30,9 @@ func main() {
 	allHTML += "<head>"
 	allHTML += "<title>CBOC Report</title>"
 	allHTML += `<style>
+a:visited, a:active {
+	color: blue;
+}
 .money {
 	text-align: right;
 	font-family: monospace;
@@ -141,23 +144,21 @@ HAVING
 
 		templateText := `
 <h1>Budget Overview</h1>
-<table>
+<table width="100%">
 	<thead>
 		<tr>
-			<th>Division</th>
-			<th>Department</th>
-			<th>Budget Amount</th>
-			<th style="min-width: 20em;">Usage</th>
-			<th>Available</th>
+			<th width="40%">Department</th>
+			<th width="10%">Budget Amount</th>
+			<th width="40%">Usage</th>
+			<th width="10%">Available</th>
 		</tr>
 	</thead>
 	<tbody>
 {{ range . }}
 		<tr>
-			<td>{{ .Division }}</td>
-			<td>{{ .DepartmentDescription }}</td>
+			<td><a href="#budget-breakdown-{{ .Division }}">{{ .Division }} - {{ .DepartmentDescription }}</a></td>
 			<td><div class="money">{{ formatMoney .BudgetAmount }}</div></td>
-			<td><div style="width: 100%;" class="budget-bar"><div class="expended" style="width: {{ div ( mul 100 .ExpendedAmount ) .BudgetAmount }}%;"></div><div class="encumbered" style="width: {{ div ( mul 100.0 .EncumberedAmount ) .BudgetAmount }}%;"></div><div class="available" style="flex: 1;"></div></td>
+			<td><div style="width: 100%;" class="budget-bar"><div class="expended" style="width: {{ div ( mul 100 .ExpendedAmount ) .BudgetAmount }}%;" title="{{ formatMoney .ExpendedAmount }}"></div><div class="encumbered" style="width: {{ div ( mul 100.0 .EncumberedAmount ) .BudgetAmount }}%;" title="{{ formatMoney .EncumberedAmount }}"></div><div class="available" style="flex: 1;" title="{{ formatMoney (sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}"></div></td>
 			<td><div class="money">{{ formatMoney ( sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}</div></td>
 		</tr>
 {{ end }}
@@ -191,12 +192,20 @@ HAVING
 			UnitCode        string
 			UnitDescription string
 			Lines           []*Line
+
+			BudgetAmount     float64
+			EncumberedAmount float64
+			ExpendedAmount   float64
 		}
 
 		type Division struct {
 			Division    string
 			Description string
 			Units       []*Unit
+
+			BudgetAmount     float64
+			EncumberedAmount float64
+			ExpendedAmount   float64
 		}
 
 		type Row struct {
@@ -275,22 +284,55 @@ HAVING
 				ExpendedAmount:         row.ExpendedAmount,
 			}
 			unit.Lines = append(unit.Lines, line)
+
+			unit.BudgetAmount += row.BudgetAmount
+			unit.EncumberedAmount += row.EncumberedAmount
+			unit.ExpendedAmount += row.ExpendedAmount
+
+			division.BudgetAmount += row.BudgetAmount
+			division.EncumberedAmount += row.EncumberedAmount
+			division.ExpendedAmount += row.ExpendedAmount
 		}
 
 		templateText := `
 <h1>Budget Breakdown</h1>
 {{ range . }}
-<h2>{{ .Description }}</h2>
-{{ range .Units }}
-<h3>{{ .UnitCode }} - {{ .UnitDescription }}</h3>
-<table>
+{{ $division := .}}
+<a name="budget-breakdown-{{ .Division }}">
+<h2>{{ .Division }} - {{ .Description }}</h2>
+<table width="100%">
 	<thead>
 		<tr>
-			<th>Code</th>
-			<th>Program</th>
-			<th>Budget Amount</th>
-			<th style="min-width: 20em;">Usage</th>
-			<th>Available</th>
+			<th width="10%">Code</th>
+			<th width="30%">Program</th>
+			<th width="10%">Budget Amount</th>
+			<th width="40%">Usage</th>
+			<th width="10%">Available</th>
+		</tr>
+	</thead>
+	<tbody>
+{{ range .Units }}
+		<tr>
+			<td><a href="#budget-breakdown-{{ $division.Division }}-unit-{{ .UnitCode }}">{{ .UnitCode }}</a></td>
+			<td><a href="#budget-breakdown-{{ $division.Division }}-unit-{{ .UnitCode }}">{{ .UnitDescription }}</a></td>
+			<td><div class="money">{{ formatMoney .BudgetAmount }}</div></td>
+			<td><div style="width: 100%;" class="budget-bar"><div class="expended" style="width: {{ div ( mul 100 .ExpendedAmount ) .BudgetAmount }}%;" title="{{ formatMoney .ExpendedAmount }}"></div><div class="encumbered" style="width: {{ div ( mul 100.0 .EncumberedAmount ) .BudgetAmount }}%;" title="{{ formatMoney .EncumberedAmount }}"></div><div class="available" style="flex: 1;" title="{{ formatMoney (sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}"></div></td>
+			<td><div class="money">{{ formatMoney ( sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}</div></td>
+		</tr>
+{{ end }}
+	</tbody>
+</table>
+{{ range .Units }}
+ <a name="budget-breakdown-{{ $division.Division }}-unit-{{ .UnitCode }}">
+<h3>{{ .UnitCode }} - {{ .UnitDescription }}</h3>
+<table width="100%">
+	<thead>
+		<tr>
+			<th width="10%">Code</th>
+			<th width="30%">Program</th>
+			<th width="10%">Budget Amount</th>
+			<th width="40%">Usage</th>
+			<th width="10%">Available</th>
 		</tr>
 	</thead>
 	<tbody>
@@ -299,7 +341,7 @@ HAVING
 			<td>{{ .ProgramCode }}</td>
 			<td>{{ .ProgramCodeDescription }}</td>
 			<td><div class="money">{{ formatMoney .BudgetAmount }}</div></td>
-			<td><div style="width: 100%;" class="budget-bar"><div class="expended" style="width: {{ div ( mul 100 .ExpendedAmount ) .BudgetAmount }}%;"></div><div class="encumbered" style="width: {{ div ( mul 100.0 .EncumberedAmount ) .BudgetAmount }}%;"></div><div class="available" style="flex: 1;"></div></td>
+			<td><div style="width: 100%;" class="budget-bar"><div class="expended" style="width: {{ div ( mul 100 .ExpendedAmount ) .BudgetAmount }}%;" title="{{ formatMoney .ExpendedAmount }}"></div><div class="encumbered" style="width: {{ div ( mul 100.0 .EncumberedAmount ) .BudgetAmount }}%;" title="{{ formatMoney .EncumberedAmount }}"></div><div class="available" style="flex: 1;" title="{{ formatMoney (sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}"></div></td>
 			<td><div class="money">{{ formatMoney ( sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}</div></td>
 		</tr>
 {{ end }}
