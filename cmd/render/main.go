@@ -178,6 +178,150 @@ HAVING
 		allHTML += w.String()
 	}
 
+	{
+		type Line struct {
+			ProgramCode            string
+			ProgramCodeDescription string
+			BudgetAmount           float64
+			EncumberedAmount       float64
+			ExpendedAmount         float64
+		}
+
+		type Unit struct {
+			UnitCode        string
+			UnitDescription string
+			Lines           []*Line
+		}
+
+		type Division struct {
+			Division    string
+			Description string
+			Units       []*Unit
+		}
+
+		type Row struct {
+			Division               string  `gorm:"column:division"`
+			DepartmentDescription  string  `gorm:"column:department_description"`
+			UnitCode               string  `gorm:"column:operating_unit"`
+			UnitDescription        string  `gorm:"column:operating_unit_description"`
+			ProgramCode            string  `gorm:"column:program_code"`
+			ProgramCodeDescription string  `gorm:"column:program_code_description"`
+			BudgetAmount           float64 `gorm:"column:budget_amount"`
+			EncumberedAmount       float64 `gorm:"column:encumbered_amount"`
+			ExpendedAmount         float64 `gorm:"column:expended_amount"`
+		}
+		var rows []Row
+		err := db.Raw(`
+SELECT
+	report.division,
+	department.department_description,
+	operating_unit,
+	operating_unit_description,
+	program_code,
+	program_code_description,
+	SUM(budget_amount) AS budget_amount,
+	SUM(encumbered_amount) AS encumbered_amount,
+	SUM(expended_amount) AS expended_amount
+FROM
+	fsf_operating_unit_program_summaries AS report
+	INNER JOIN
+	(
+		SELECT DISTINCT division, department_description FROM mobius_dgl115
+	) AS department
+		ON report.division = department.division
+GROUP BY
+	report.division, operating_unit, program_code
+HAVING
+	budget_amount > 0
+`).
+			Find(&rows).
+			Error
+		if err != nil {
+			panic(err)
+		}
+
+		divisionMap := map[string]*Division{}
+		unitMap := map[string]map[string]*Unit{}
+		divisions := []*Division{}
+		for _, row := range rows {
+			division, ok := divisionMap[row.Division]
+			if !ok {
+				division = &Division{
+					Division:    row.Division,
+					Description: row.DepartmentDescription,
+				}
+				divisionMap[row.Division] = division
+				divisions = append(divisions, division)
+			}
+
+			if _, ok := unitMap[row.Division]; !ok {
+				unitMap[row.Division] = map[string]*Unit{}
+			}
+			unit, ok := unitMap[row.Division][row.UnitCode]
+			if !ok {
+				unit = &Unit{
+					UnitCode:        row.UnitCode,
+					UnitDescription: row.UnitDescription,
+				}
+				unitMap[row.Division][row.UnitCode] = unit
+				division.Units = append(division.Units, unit)
+			}
+
+			line := &Line{
+				ProgramCode:            row.ProgramCode,
+				ProgramCodeDescription: row.ProgramCodeDescription,
+				BudgetAmount:           row.BudgetAmount,
+				EncumberedAmount:       row.EncumberedAmount,
+				ExpendedAmount:         row.ExpendedAmount,
+			}
+			unit.Lines = append(unit.Lines, line)
+		}
+
+		templateText := `
+<h1>Budget Breakdown</h1>
+{{ range . }}
+<h2>{{ .Description }}</h2>
+{{ range .Units }}
+<h3>{{ .UnitCode }} - {{ .UnitDescription }}</h3>
+<table>
+	<thead>
+		<tr>
+			<th>Code</th>
+			<th>Program</th>
+			<th>Budget Amount</th>
+			<th style="min-width: 20em;">Usage</th>
+			<th>Available</th>
+		</tr>
+	</thead>
+	<tbody>
+{{ range .Lines }}
+		<tr>
+			<td>{{ .ProgramCode }}</td>
+			<td>{{ .ProgramCodeDescription }}</td>
+			<td><div class="money">{{ formatMoney .BudgetAmount }}</div></td>
+			<td><div style="width: 100%;" class="budget-bar"><div class="expended" style="width: {{ div ( mul 100 .ExpendedAmount ) .BudgetAmount }}%;"></div><div class="encumbered" style="width: {{ div ( mul 100.0 .EncumberedAmount ) .BudgetAmount }}%;"></div><div class="available" style="flex: 1;"></div></td>
+			<td><div class="money">{{ formatMoney ( sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}</div></td>
+		</tr>
+{{ end }}
+	</tbody>
+</table>
+{{ end }}
+{{ end }}
+                `
+		t, err := template.New("").Funcs(funcMap).Parse(templateText)
+		if err != nil {
+			panic(err)
+		}
+
+		var w bytes.Buffer
+		err = t.Execute(&w, divisions)
+		if err != nil {
+			panic(err)
+		}
+
+		allHTML += w.String()
+	}
+
 	allHTML += "</body>"
 	allHTML += "</html>"
 
