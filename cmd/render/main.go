@@ -33,6 +33,13 @@ func main() {
 body {
 	font-family: sans-serif;
 }
+@media screen {
+	.page {
+		padding-bottom: 5em;
+		border-bottom: 1px solid gray;
+		margin-bottom: 5em;
+	}
+}
 @media print {
 	body {
 		font-size: 0.9em;
