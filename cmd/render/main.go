@@ -30,12 +30,30 @@ func main() {
 	allHTML += "<head>"
 	allHTML += "<title>CBOC Report</title>"
 	allHTML += `<style>
+body {
+	font-family: sans-serif;
+}
+@media print {
+	body {
+		font-size: 0.9em;
+	}
+	td, th {
+		font-size: 0.9em;
+	}
+	.page {
+		break-after: page;
+	}
+	.page-break {
+		break-after: page;
+	}
+}
 a:visited, a:active {
 	color: blue;
 }
 .money {
 	text-align: right;
-	font-family: monospace;
+	font-variant-numeric: ordinal;
+	font-size: 0.9em;
 }
 .budget-bar {
 	display: flex;
@@ -109,6 +127,17 @@ a:visited, a:active {
 	}
 
 	{
+		allHTML += `<div class="page">`
+		allHTML += "<h1>Table of Contents</h1>"
+		allHTML += "<ul>"
+		allHTML += "<li><a href=\"#budget-overview\">Budget Overview</a></li>"
+		allHTML += "<li><a href=\"#budget-breakdown\">Budget Breakdown</a></li>"
+		allHTML += "<li><a href=\"#program-breakdown\">Program Breakdown</a></li>"
+		allHTML += "</ul>"
+		allHTML += `</div>`
+	}
+
+	{
 		type Row struct {
 			Division              string  `gorm:"column:division"`
 			DepartmentDescription string  `gorm:"column:department_description"`
@@ -143,6 +172,7 @@ HAVING
 		}
 
 		templateText := `
+<a name="budget-overview">
 <h1>Budget Overview</h1>
 <table width="100%">
 	<thead>
@@ -176,7 +206,9 @@ HAVING
 			panic(err)
 		}
 
+		allHTML += `<div class="page">`
 		allHTML += w.String()
+		allHTML += `</div>`
 	}
 
 	{
@@ -295,9 +327,11 @@ HAVING
 		}
 
 		templateText := `
+<a name="budget-breakdown">
 <h1>Budget Breakdown</h1>
 {{ range . }}
 {{ $division := .}}
+<div class="page">
 <a name="budget-breakdown-{{ .Division }}">
 <h2>{{ .Division }} - {{ .Description }}</h2>
 <table width="100%">
@@ -348,6 +382,7 @@ HAVING
 	</tbody>
 </table>
 {{ end }}
+</div>
 {{ end }}
                 `
 		t, err := template.New("").Funcs(funcMap).Parse(templateText)
@@ -361,7 +396,199 @@ HAVING
 			panic(err)
 		}
 
+		//allHTML += `<div class="page">`
 		allHTML += w.String()
+		//allHTML += `</div>`
+	}
+
+	{
+		type Line struct {
+			UnitCode            string
+			UnitCodeDescription string
+			BudgetAmount        float64
+			EncumberedAmount    float64
+			ExpendedAmount      float64
+		}
+
+		type Program struct {
+			ProgramCode            string
+			ProgramCodeDescription string
+			Lines                  []*Line
+
+			BudgetAmount     float64
+			EncumberedAmount float64
+			ExpendedAmount   float64
+		}
+
+		type Division struct {
+			Division    string
+			Description string
+			Programs    []*Program
+
+			BudgetAmount     float64
+			EncumberedAmount float64
+			ExpendedAmount   float64
+		}
+
+		type Row struct {
+			Division               string  `gorm:"column:division"`
+			DepartmentDescription  string  `gorm:"column:department_description"`
+			UnitCode               string  `gorm:"column:operating_unit"`
+			UnitDescription        string  `gorm:"column:operating_unit_description"`
+			ProgramCode            string  `gorm:"column:program_code"`
+			ProgramCodeDescription string  `gorm:"column:program_code_description"`
+			BudgetAmount           float64 `gorm:"column:budget_amount"`
+			EncumberedAmount       float64 `gorm:"column:encumbered_amount"`
+			ExpendedAmount         float64 `gorm:"column:expended_amount"`
+		}
+		var rows []Row
+		err := db.Raw(`
+SELECT
+	report.division,
+	department.department_description,
+	operating_unit,
+	operating_unit_description,
+	program_code,
+	program_code_description,
+	SUM(budget_amount) AS budget_amount,
+	SUM(encumbered_amount) AS encumbered_amount,
+	SUM(expended_amount) AS expended_amount
+FROM
+	fsf_operating_unit_program_summaries AS report
+	INNER JOIN
+	(
+		SELECT DISTINCT division, department_description FROM mobius_dgl115
+	) AS department
+		ON report.division = department.division
+GROUP BY
+	report.division, operating_unit, program_code
+HAVING
+	budget_amount > 0
+`).
+			Find(&rows).
+			Error
+		if err != nil {
+			panic(err)
+		}
+
+		divisionMap := map[string]*Division{}
+		programMap := map[string]map[string]*Program{}
+		divisions := []*Division{}
+		for _, row := range rows {
+			division, ok := divisionMap[row.Division]
+			if !ok {
+				division = &Division{
+					Division:    row.Division,
+					Description: row.DepartmentDescription,
+				}
+				divisionMap[row.Division] = division
+				divisions = append(divisions, division)
+			}
+
+			if _, ok := programMap[row.Division]; !ok {
+				programMap[row.Division] = map[string]*Program{}
+			}
+			program, ok := programMap[row.Division][row.ProgramCode]
+			if !ok {
+				program = &Program{
+					ProgramCode:            row.ProgramCode,
+					ProgramCodeDescription: row.ProgramCodeDescription,
+				}
+				programMap[row.Division][row.ProgramCode] = program
+				division.Programs = append(division.Programs, program)
+			}
+
+			line := &Line{
+				UnitCode:            row.UnitCode,
+				UnitCodeDescription: row.UnitDescription,
+				BudgetAmount:        row.BudgetAmount,
+				EncumberedAmount:    row.EncumberedAmount,
+				ExpendedAmount:      row.ExpendedAmount,
+			}
+			program.Lines = append(program.Lines, line)
+
+			program.BudgetAmount += row.BudgetAmount
+			program.EncumberedAmount += row.EncumberedAmount
+			program.ExpendedAmount += row.ExpendedAmount
+
+			division.BudgetAmount += row.BudgetAmount
+			division.EncumberedAmount += row.EncumberedAmount
+			division.ExpendedAmount += row.ExpendedAmount
+		}
+
+		templateText := `
+<a name="program-breakdown">
+<h1>Program Breakdown</h1>
+{{ range . }}
+{{ $division := .}}
+<div class="page">
+<a name="program-breakdown-{{ .Division }}">
+<h2>{{ .Division }} - {{ .Description }}</h2>
+<table width="100%">
+	<thead>
+		<tr>
+			<th width="10%">Code</th>
+			<th width="30%">Program</th>
+			<th width="10%">Budget Amount</th>
+			<th width="40%">Usage</th>
+			<th width="10%">Available</th>
+		</tr>
+	</thead>
+	<tbody>
+{{ range .Programs }}
+		<tr>
+			<td><a href="#program-breakdown-{{ $division.Division }}-unit-{{ .ProgramCode }}">{{ .ProgramCode }}</a></td>
+			<td><a href="#program-breakdown-{{ $division.Division }}-unit-{{ .ProgramCode }}">{{ .ProgramCodeDescription }}</a></td>
+			<td><div class="money">{{ formatMoney .BudgetAmount }}</div></td>
+			<td><div style="width: 100%;" class="budget-bar"><div class="expended" style="width: {{ div ( mul 100 .ExpendedAmount ) .BudgetAmount }}%;" title="{{ formatMoney .ExpendedAmount }}"></div><div class="encumbered" style="width: {{ div ( mul 100.0 .EncumberedAmount ) .BudgetAmount }}%;" title="{{ formatMoney .EncumberedAmount }}"></div><div class="available" style="flex: 1;" title="{{ formatMoney (sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}"></div></td>
+			<td><div class="money">{{ formatMoney ( sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}</div></td>
+		</tr>
+{{ end }}
+	</tbody>
+</table>
+{{ range .Programs }}
+ <a name="program-breakdown-{{ $division.Division }}-unit-{{ .ProgramCode }}">
+<h3>{{ .ProgramCode }} - {{ .ProgramCodeDescription }}</h3>
+<table width="100%">
+	<thead>
+		<tr>
+			<th width="10%">Code</th>
+			<th width="30%">Unit</th>
+			<th width="10%">Budget Amount</th>
+			<th width="40%">Usage</th>
+			<th width="10%">Available</th>
+		</tr>
+	</thead>
+	<tbody>
+{{ range .Lines }}
+		<tr>
+			<td>{{ .UnitCode }}</td>
+			<td>{{ .UnitCodeDescription }}</td>
+			<td><div class="money">{{ formatMoney .BudgetAmount }}</div></td>
+			<td><div style="width: 100%;" class="budget-bar"><div class="expended" style="width: {{ div ( mul 100 .ExpendedAmount ) .BudgetAmount }}%;" title="{{ formatMoney .ExpendedAmount }}"></div><div class="encumbered" style="width: {{ div ( mul 100.0 .EncumberedAmount ) .BudgetAmount }}%;" title="{{ formatMoney .EncumberedAmount }}"></div><div class="available" style="flex: 1;" title="{{ formatMoney (sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}"></div></td>
+			<td><div class="money">{{ formatMoney ( sub .BudgetAmount .ExpendedAmount .EncumberedAmount ) }}</div></td>
+		</tr>
+{{ end }}
+	</tbody>
+</table>
+{{ end }}
+</div>
+{{ end }}
+                `
+		t, err := template.New("").Funcs(funcMap).Parse(templateText)
+		if err != nil {
+			panic(err)
+		}
+
+		var w bytes.Buffer
+		err = t.Execute(&w, divisions)
+		if err != nil {
+			panic(err)
+		}
+
+		//allHTML += `<div class="page">`
+		allHTML += w.String()
+		//allHTML += `</div>`
 	}
 
 	allHTML += "</body>"
