@@ -217,24 +217,41 @@ func doTheThing(browser *rod.Browser, config Config) error {
 
 				var dateFile string
 				{
-					itemMap, err := mobiusInstance.GetItems()
+					itemMap, err := mobiusInstance.GetItemsN(400)
 					if err != nil {
 						return err
 					}
 
+					lastDateOfMonth := time.Date(config.TargetYear, time.Month(config.TargetMonth)+1, 1, 0, 0, -1, 0, time.Local)
 					var lastDate time.Time
+					var lastDateFile string
+					var firstDateAfterMonth time.Time
+					var firstDateAfterMonthFile string
 					for dateName := range maps.Keys(itemMap) {
 						t, err := time.Parse("Jan 2, 2006 3:04:05 PM", dateName)
 						if err != nil {
 							fmt.Printf("Could not parse date %q: %v\n", dateName, err)
 							continue
 						}
+						if t.After(lastDateOfMonth) && (firstDateAfterMonth.IsZero() || t.Before(firstDateAfterMonth)) {
+							firstDateAfterMonth = t
+							firstDateAfterMonthFile = dateName
+						}
 						if t.Year() != config.TargetYear || int(t.Month()) != config.TargetMonth {
 							continue
 						}
 						if lastDate.IsZero() || t.After(lastDate) {
 							lastDate = t
-							dateFile = dateName
+							lastDateFile = dateName
+						}
+					}
+
+					if !firstDateAfterMonth.IsZero() {
+						dateFile = firstDateAfterMonthFile
+					}
+					if !lastDate.IsZero() {
+						if lastDate.AddDate(0, 0, 1).Month() != lastDate.Month() {
+							dateFile = lastDateFile
 						}
 					}
 				}
@@ -242,10 +259,12 @@ func doTheThing(browser *rod.Browser, config Config) error {
 					return fmt.Errorf("could not find a date file")
 				}
 
-				err = mobiusInstance.ClickItem(dateFile)
-				if err != nil {
-					return err
-				}
+				/*
+					err = mobiusInstance.ClickItem(dateFile)
+					if err != nil {
+						return err
+					}
+				*/
 
 				pathWithDate := append([]string{}, path...)
 				pathWithDate = append(pathWithDate, dateFile)

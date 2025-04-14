@@ -236,13 +236,49 @@ func (m *Mobius) GetItems() (map[string]*rod.Element, error) {
 	return output, nil
 }
 
+func (m *Mobius) GetItemsN(limit int) (map[string]*rod.Element, error) {
+	output := map[string]*rod.Element{}
+
+	for {
+		originalLength := len(output)
+		newOutput, err := m.GetItems()
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range newOutput {
+			output[key] = value
+		}
+		newLength := len(output)
+
+		if newLength == originalLength {
+			break
+		}
+		if newLength >= limit {
+			break
+		}
+
+		err = m.page.Mouse.Scroll(0, 500, 4)
+		if err != nil {
+			fmt.Printf("Could not scroll: %v\n", err)
+		}
+		m.page.WaitDOMStable(1*time.Second, 10)
+	}
+
+	return output, nil
+}
+
 func (m *Mobius) SearchItems(searchText string) error {
 	fmt.Printf("SearchItems: %s\n", searchText)
 
 	//panic("oops")
 
+	t, err := time.Parse("Jan 2, 2006 3:04:05 PM", searchText)
+	if err == nil {
+		searchText = t.Format("20060102150405")
+	}
+
 	inputElement := m.page.MustElement("app-mobius-view-content-list mobius-content-list mobius-content-filter input")
-	inputElement.Type(slices.Repeat([]input.Key{input.Backspace}, 20)...)
+	inputElement.Type(slices.Repeat([]input.Key{input.Backspace}, 30)...)
 	inputElement.MustInput(searchText)
 
 	m.page.WaitDOMStable(5*time.Second, 10)
