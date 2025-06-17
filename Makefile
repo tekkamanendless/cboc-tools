@@ -1,5 +1,8 @@
 all: linux-binaries windows-binaries
 
+clean:
+	rm -rf bin
+
 ALL_GO_FILES := $(shell find ./ -name '*.go')
 
 export CGO_ENABLED=0
