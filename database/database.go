@@ -53,5 +53,7 @@ func New(connectionString string) (*gorm.DB, error) {
 		return nil, err
 	}
 
+	db = db.Debug()
+
 	return db, nil
 }
