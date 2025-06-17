@@ -199,7 +199,7 @@ func main() {
 		panic(err)
 	}
 	for _, filename := range files {
-		division := strings.TrimSuffix(strings.TrimPrefix(filename, baseDirectory+"/mobius.DGL060."), ".csv")
+		division := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(filename), "mobius.DGL060."), ".csv")
 		fmt.Printf("filename: %s\n", filename)
 
 		if _, err := os.Stat(filename); err != nil && os.IsNotExist(err) {
@@ -328,7 +328,7 @@ func main() {
 		panic(err)
 	}
 	for _, filename := range files {
-		division := strings.TrimSuffix(strings.TrimPrefix(filename, baseDirectory+"/mobius.DGL114."), ".csv")
+		division := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(filename), "mobius.DGL114."), ".csv")
 		fmt.Printf("filename: %s\n", filename)
 
 		if _, err := os.Stat(filename); err != nil && os.IsNotExist(err) {
@@ -442,7 +442,7 @@ func main() {
 		panic(err)
 	}
 	for _, filename := range files {
-		division := strings.TrimSuffix(strings.TrimPrefix(filename, baseDirectory+"/mobius.DGL115."), ".csv")
+		division := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(filename), "mobius.DGL115."), ".csv")
 		fmt.Printf("filename: %s\n", filename)
 
 		if _, err := os.Stat(filename); err != nil && os.IsNotExist(err) {
