@@ -34,6 +34,8 @@ func main() {
 	var headless bool
 	var slowMotion time.Duration
 	var config Config
+	var sleepAfterSuccess time.Duration
+	var sleepAfterFailure time.Duration
 	flag.BoolVar(&devTools, "dev-tools", false, "Show the dev tools.")
 	flag.BoolVar(&headless, "headless", true, "Set the headless mode.  If true, no browser will be shown.")
 	flag.DurationVar(&slowMotion, "slow-motion", 0, "Set the delay between actions.")
@@ -47,6 +49,8 @@ func main() {
 	flag.StringVar(&config.ERPPassword, "erp-password", "", "The password.")
 	flag.IntVar(&config.TargetYear, "target-year", 0, "The target year.")
 	flag.IntVar(&config.TargetMonth, "target-month", 0, "The target month.")
+	flag.DurationVar(&sleepAfterSuccess, "sleep-after-success", 0, "How long to sleep at the end after success")
+	flag.DurationVar(&sleepAfterFailure, "sleep-after-failure", 5*time.Minute, "How long to sleep at the end after failure")
 
 	flag.Parse()
 
@@ -98,10 +102,15 @@ func main() {
 	err := doTheThing(browser, config)
 	if err != nil {
 		fmt.Printf("ERROR: %v\n", err)
+
+		fmt.Printf("Sleeping for %v...\n", sleepAfterFailure)
+		time.Sleep(sleepAfterFailure)
+		os.Exit(1)
 	}
 
-	fmt.Printf("Sleeping...\n")
-	time.Sleep(10 * time.Minute)
+	fmt.Printf("SUCCESS\n")
+	fmt.Printf("Sleeping for %v...\n", sleepAfterSuccess)
+	time.Sleep(sleepAfterSuccess)
 }
 
 func doTheThing(browser *rod.Browser, config Config) error {
@@ -166,6 +175,20 @@ func doTheThing(browser *rod.Browser, config Config) error {
 			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.operating-unit-expenditure-summary.pdf"
 			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
 				contents, err := fsfInstance.DownloadOperatingUnitExpenditureSummaryReport(config.TargetYear, config.TargetMonth, divisions, "pdf")
+				if err != nil {
+					return err
+				}
+
+				os.WriteFile(fileName, contents, 0644)
+			}
+		}
+		{
+			fileName := config.BaseDirectory + string(filepath.Separator) + "fsf.detailed-activity-report.csv"
+			if _, err := os.Stat(fileName); err != nil && os.IsNotExist(err) {
+				startDate := time.Date(config.TargetYear, time.Month(config.TargetMonth), 1, 12, 0, 0, 0, time.UTC)
+				endDate := startDate.AddDate(0, 1, 0).AddDate(0, 0, -1)
+
+				contents, err := fsfInstance.DownloadDetailedActivityReport(startDate, endDate, divisions, "csv")
 				if err != nil {
 					return err
 				}
